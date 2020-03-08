@@ -20,6 +20,7 @@ class Scratch3DeepScratch {
     this.training_accuracy = "";
     this.loss = "";
     this.model = null;
+    this.model_type = "";
     this.prediction = "";
   }
 
@@ -139,6 +140,7 @@ class Scratch3DeepScratch {
   getPrediction() {
     return this.prediction;
   }
+
   setLayers (args) {
     this.layers = args.Number;
   }
@@ -153,17 +155,18 @@ class Scratch3DeepScratch {
     this.training_accuracy = "";
     this.loss = "";
     this.prediction = "";
+    this.model_type = args.Model;
 
     if (args.Data == "iris") {
 
       // Mapping the trainingdata
-      const trainingData = tf.tensor2d(iris.map(item=> [
+      let trainingData = tf.tensor2d(iris.map(item=> [
         item.sepal_length, item.sepal_width, item.petal_length, item.petal_width
       ]
     ),[130,4])
 
     // Mapping the testing data
-    const testingData = tf.tensor2d(irisTesting.map(item=> [
+    let testingData = tf.tensor2d(irisTesting.map(item=> [
       item.sepal_length, item.sepal_width, item.petal_length, item.petal_width
     ]
   ),[14,4])
@@ -187,7 +190,7 @@ class Scratch3DeepScratch {
   // Creating Model
   this.model = tf.sequential();
 
-  if (args.Model == "Dense") {
+  if (this.model_type == "Dense") {
 
     this.model.add(tf.layers.dense(
       {   inputShape: 4,
@@ -213,53 +216,77 @@ class Scratch3DeepScratch {
       }
     ));
 
-    console.log(this.model.summary());
-    // compiling model
-    this.model.compile({
-      loss: "categoricalCrossentropy",
-      metrics: ["accuracy"],
-      optimizer: tf.train.adam(.06)
-    })
+  } else {
 
-    this.model.fit(trainingData, outputData, {epochs: this.epochs, shuffle: false, callbacks: {
-      onEpochEnd: (epoch, logs) => {
-        //console.log("EPOCH END");
-        console.log("Loss: ", logs.loss);
-        this.loss = logs.loss;
-        console.log("Training Accuracy: ", logs.acc);
-        this.training_accuracy = logs.acc;
+    // Reshape input data to mach the input required by RNN models
+    trainingData = trainingData.reshape([130, 1, 4]);
+    testingData = testingData.reshape([14, 1, 4]);
 
+    this.model.add(tf.layers.simpleRNN(
+      {
+        inputShape: [1, 4], // [number of time steps, number of features]
+        activation: 'sigmoid',
+        units: 5,
+        return_sequences: true
       }
-    }}).then(
-      (history)=>{
-        const evaluation = this.model.evaluate(testingData, testingOutputData)
-        // // Loss
-        // console.log("Testing Loss: ");
-        // console.log(evaluation[0].print());
+    ));
 
-        // Testing Accuracy
-        console.log("Testing Accuracy: ");
-        evaluation[1].array().then(array => {
-          this.accuracy = array;
-          console.log(this.accuracy);
-        });
-
-
-        //console.log(model.predict(testingData).print());
-        //
-        // console.log("yTrue: ");
-        // console.log(testingOutputData.print());
-        // console.log("yPred: ");
-        // yPred.print();
-        // const recall = tf.metrics.precision(testingOutputData, yPred);
-        // console.log("RECALL: ");
-        // console.log(recall.print());
-
-        console.log("DONE");
+    this.model.add(tf.layers.dense(
+      {
+        inputShape: [130, 4],
+        units: 3,
+        activation: 'softmax'
       }
-    );
-
+    ));
   }
+
+  console.log(this.model.summary());
+
+  // compiling model
+  this.model.compile({
+    loss: "categoricalCrossentropy",
+    metrics: ["accuracy"],
+    optimizer: tf.train.adam(.06)
+  })
+
+  this.model.fit(trainingData, outputData, {epochs: this.epochs, shuffle: false, callbacks: {
+    onEpochEnd: (epoch, logs) => {
+      //console.log("EPOCH END");
+      console.log("Loss: ", logs.loss);
+      this.loss = logs.loss;
+      console.log("Training Accuracy: ", logs.acc);
+      this.training_accuracy = logs.acc;
+
+    }
+  }}).then(
+    (history)=>{
+      const evaluation = this.model.evaluate(testingData, testingOutputData)
+      // // Loss
+      // console.log("Testing Loss: ");
+      // console.log(evaluation[0].print());
+
+      // Testing Accuracy
+      console.log("Testing Accuracy: ");
+      evaluation[1].array().then(array => {
+        this.accuracy = array;
+        console.log(this.accuracy);
+      });
+
+
+      //console.log(model.predict(testingData).print());
+      //
+      // console.log("yTrue: ");
+      // console.log(testingOutputData.print());
+      // console.log("yPred: ");
+      // yPred.print();
+      // const recall = tf.metrics.precision(testingOutputData, yPred);
+      // console.log("RECALL: ");
+      // console.log(recall.print());
+
+      console.log("DONE");
+    }
+  );
+
 
 }
 
@@ -274,9 +301,15 @@ predictIris(args) {
 
   if (this.model != null) {
 
-    const newData = tf.tensor2d([[Number(args.sepal_length), Number(args.sepal_width), Number(args.petal_length), Number(args.petal_width)]]);
+    let newData = tf.tensor2d([[Number(args.sepal_length), Number(args.sepal_width), Number(args.petal_length), Number(args.petal_width)]]);
+
+    if (this.model_type == "RNN") {
+      // Reshape input for RNN
+      newData = newData.reshape([1, 1, 4]);
+    }
 
     const prediction = this.model.predict(newData).array().then(array => {
+
       array = array[0];
       let max = array[0]
       if (array[1] > max) {
@@ -285,10 +318,6 @@ predictIris(args) {
       if (array[2] > max) {
         max = array[2];
       }
-      // console.log(array[0]);
-      // console.log(array[1]);
-      // console.log(array[2]);
-      // console.log(max);
 
       if (max == array[0]) {
         this.prediction = "setosa";
@@ -298,7 +327,6 @@ predictIris(args) {
         this.prediction = "versicolor";
       }
 
-      //console.log(this.prediction);
     });
 
   }
