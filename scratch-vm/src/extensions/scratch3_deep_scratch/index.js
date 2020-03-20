@@ -48,6 +48,7 @@ const AvailableLocales = ['en', 'ar'];
 
 let cnn_model = null;
 let dense_model = null;
+let rnn_model = null;
 let epochs = EPOCHS_DEFAULT;
 let accuracy = "";
 let training_accuracy = "";
@@ -154,6 +155,7 @@ class Scratch3DeepScratch {
                         }
                     }
                 },
+                '---',
                 {
                     opcode: 'dense_train',
                     blockType: BlockType.COMMAND,
@@ -161,7 +163,7 @@ class Scratch3DeepScratch {
                     arguments: {
                         Data: {
                             type: ArgumentType.STRING,
-                            menu: 'dataMenu'
+                            menu: 'dense_data_menu'
                         },
                         Layers: {
                             type: ArgumentType.STRING,
@@ -169,6 +171,33 @@ class Scratch3DeepScratch {
                         }
                     }
                 },
+                {
+                    opcode: 'RNN_train',
+                    blockType: BlockType.COMMAND,
+                    text: 'train RNN: data [Data]',
+                    arguments: {
+                        Data: {
+                            type: ArgumentType.STRING,
+                            menu: 'rnn_data_menu'
+                        }
+                    }
+                },
+                {
+                    opcode: 'CNN_train',
+                    blockType: BlockType.COMMAND,
+                    text: 'train CNN: data [Data] batch size [BS]',
+                    arguments: {
+                        Data: {
+                            type: ArgumentType.STRING,
+                            menu: "cnn_data_menu"
+                        },
+                        BS: {
+                            type: ArgumentType.NUMBER,
+                            defaultValue: BATCH_SIZE_DEFAULT
+                        }
+                    }
+                },
+                '---',
                 {
                     opcode: 'predictIris',
                     blockType: BlockType.COMMAND,
@@ -189,25 +218,11 @@ class Scratch3DeepScratch {
                     }
                 },
                 {
-                    opcode: 'CNN_train',
-                    blockType: BlockType.COMMAND,
-                    text: 'train CNN: data [Data] batch size [BS]',
-                    arguments: {
-                        Data: {
-                            type: ArgumentType.STRING,
-                            menu: "cnn_data_menu"
-                        },
-                        BS: {
-                            type: ArgumentType.NUMBER,
-                            defaultValue: BATCH_SIZE_DEFAULT
-                        }
-                    }
-                },
-                {
-                    opcode: 'CNN_predict',
+                    opcode: 'predictMNIST',
                     blockType: BlockType.COMMAND,
                     text: 'predict MNIST',
                 },
+                '---',
                 {
                     opcode: 'getAccuracy',
                     blockType: BlockType.REPORTER,
@@ -235,7 +250,8 @@ class Scratch3DeepScratch {
                     text: 'prediction',
                     arguments: {
                     }
-                },
+                }, 
+                '---',
                 // Pre-trained model
                 {
                     opcode: 'videoToggle',
@@ -311,9 +327,9 @@ class Scratch3DeepScratch {
                 }
             ],
             menus: {
-                dataMenu: ['iris'],
-                modelsMenu: ['Dense', 'RNN', 'CNN'],
+                dense_data_menu: ['iris'],
                 cnn_data_menu: ["MNIST"],
+                rnn_data_menu: ['iris'],
                 video_menu: this.getVideoMenu(),
                 classes_menu: this.getCLassMenu(),
                 scores_menu: this.getScoreMenu(),
@@ -350,6 +366,36 @@ class Scratch3DeepScratch {
         training_accuracy = "";
         loss = "";
         prediction = "";
+        dense_model = null;
+        rnn_model = null;
+        cnn_model = null;
+    }
+
+    // Load iris data
+    load_iris() {
+
+        // Mapping the trainingdata
+        let trainingData = tf.tensor2d(iris.map(item => [
+            item.sepal_length, item.sepal_width, item.petal_length, item.petal_width]), [130, 4])
+
+        // Mapping the testing data
+        let testingData = tf.tensor2d(irisTesting.map(item => [
+            item.sepal_length, item.sepal_width, item.petal_length, item.petal_width]), [14, 4])
+
+        // Mapping the output data
+        const outputData = tf.tensor2d(iris.map(item => [
+            item.species === 'setosa' ? 1 : 0,
+            item.species === 'virginica' ? 1 : 0,
+            item.species === 'versicolor' ? 1 : 0]), [130, 3])
+
+        // Mapping the output data
+        const testingOutputData = tf.tensor2d(irisTesting.map(item => [
+            item.species === 'setosa' ? 1 : 0,
+            item.species === 'virginica' ? 1 : 0,
+            item.species === 'versicolor' ? 1 : 0]), [14, 3])
+
+        return [trainingData, testingData, outputData, testingOutputData]
+
     }
 
     //_____________________Dense train_____________________________________
@@ -360,120 +406,80 @@ class Scratch3DeepScratch {
         // ___________________________IRIS data ____________________________
         if (args.Data == "iris") {
 
-            // Mapping the trainingdata
-            let trainingData = tf.tensor2d(iris.map(item => [
-                item.sepal_length, item.sepal_width, item.petal_length, item.petal_width]), [130, 4])
+            const iris_data = this.load_iris();
+            const trainingData = iris_data[0];
+            const testingData = iris_data[1];
+            const outputData = iris_data[2];
+            const testingOutputData = iris_data[3];
 
-            // Mapping the testing data
-            let testingData = tf.tensor2d(irisTesting.map(item => [
-                item.sepal_length, item.sepal_width, item.petal_length, item.petal_width]), [14, 4])
-
-            // Mapping the output data
-            const outputData = tf.tensor2d(iris.map(item => [
-                item.species === 'setosa' ? 1 : 0,
-                item.species === 'virginica' ? 1 : 0,
-                item.species === 'versicolor' ? 1 : 0]), [130, 3])
-
-            // Mapping the output data
-            const testingOutputData = tf.tensor2d(irisTesting.map(item => [
-                item.species === 'setosa' ? 1 : 0,
-                item.species === 'virginica' ? 1 : 0,
-                item.species === 'versicolor' ? 1 : 0]), [14, 3])
-                
             // Creating Model
-        dense_model = tf.sequential();
+            dense_model = tf.sequential();
 
-        dense_model.add(tf.layers.dense(
-            {
-                inputShape: 4,
-                activation: 'sigmoid',
-                units: 5
-            }
-        ));
-
-        for (let i = 1; i <= args.Layers; i++) {
             dense_model.add(tf.layers.dense(
                 {
-                    inputShape: 5,
+                    inputShape: 4,
                     activation: 'sigmoid',
                     units: 5
                 }
             ));
-        }
 
-        dense_model.add(tf.layers.dense(
-            {
-                inputShape: 5,
-                units: 3,
-                activation: 'softmax'
+            for (let i = 1; i <= args.Layers; i++) {
+                dense_model.add(tf.layers.dense(
+                    {
+                        inputShape: 5,
+                        activation: 'sigmoid',
+                        units: 5
+                    }
+                ));
             }
-        ));
 
-
-        console.log(dense_model.summary());
-        // compiling model
-        dense_model.compile({
-            loss: "categoricalCrossentropy",
-            metrics: ["accuracy"],
-            optimizer: tf.train.adam(.06)
-        })
-
-        dense_model.fit(trainingData, outputData, {
-            epochs: epochs, shuffle: false, callbacks: {
-                onEpochEnd: (epoch, logs) => {
-                    //console.log("EPOCH END");
-                    console.log("Loss: ", logs.loss);
-                    loss = logs.loss;
-                    console.log("Training Accuracy: ", logs.acc);
-                    training_accuracy = logs.acc;
-
+            dense_model.add(tf.layers.dense(
+                {
+                    inputShape: 5,
+                    units: 3,
+                    activation: 'softmax'
                 }
-            }
-        }).then(
-            (history) => {
-                const evaluation = dense_model.evaluate(testingData, testingOutputData)
-                // // Loss
-                // console.log("Testing Loss: ");
-                // console.log(evaluation[0].print());
+            ));
 
-                // Testing Accuracy
-                console.log("Testing Accuracy: ");
-                evaluation[1].array().then(array => {
-                    accuracy = array;
-                    console.log(this.accuracy);
+
+            console.log(dense_model.summary());
+            // compiling model
+            dense_model.compile({
+                loss: "categoricalCrossentropy",
+                metrics: ["accuracy"],
+                optimizer: tf.train.adam(.06)
+            })
+
+            dense_model.fit(trainingData, outputData, {
+                epochs: epochs, shuffle: false, callbacks: {
+                    onEpochEnd: (epoch, logs) => {
+                        //console.log("EPOCH END");
+                        console.log("Loss: ", logs.loss);
+                        loss = logs.loss;
+                        console.log("Training Accuracy: ", logs.acc);
+                        training_accuracy = logs.acc;
+
+                    }
+                }
+            }).then(
+                (history) => {
+                    const evaluation = dense_model.evaluate(testingData, testingOutputData)
+                    // // Loss
+                    // console.log("Testing Loss: ");
+                    // console.log(evaluation[0].print());
+
+                    // Testing Accuracy
+                    console.log("Testing Accuracy: ");
+                    evaluation[1].array().then(array => {
+                        accuracy = array;
+                        console.log(this.accuracy);
+                    });
+
+                    console.log("DONE");
                 });
-
-                console.log("DONE");
-            });
 
         } // End iris data
 
-        
-        // ___________________________RNN Model ____________________________
-
-        // else if (this.model_type == "RNN") {
-        //     // Reshape input data to mach the input required by RNN models
-        //     trainingData = trainingData.reshape([130, 1, 4]);
-        //     testingData = testingData.reshape([14, 1, 4]);
-
-        //     this.model.add(tf.layers.simpleRNN(
-        //         {
-        //             inputShape: [1, 4], // [number of time steps, number of features]
-        //             activation: 'sigmoid',
-        //             units: 5,
-        //             return_sequences: true
-        //         }
-        //     ));
-
-        //     this.model.add(tf.layers.dense(
-        //         {
-        //             inputShape: [130, 4],
-        //             units: 3,
-        //             activation: 'softmax'
-        //         }
-        //     ));
-        // }
-        // 
         epochs = EPOCHS_DEFAULT;
         layers = LAYERS_DEFAULT;
 
@@ -487,11 +493,6 @@ class Scratch3DeepScratch {
         if (dense_model != null) {
 
             let newData = tf.tensor2d([[Number(args.sepal_length), Number(args.sepal_width), Number(args.petal_length), Number(args.petal_width)]]);
-
-            // if (this.model_type == "RNN") {
-            //     // Reshape input for RNN
-            //     newData = newData.reshape([1, 1, 4]);
-            // }
 
             dense_model.predict(newData).array().then(array => {
 
@@ -513,7 +514,110 @@ class Scratch3DeepScratch {
                 }
             });
 
+        } else if (rnn_model != null) {
+
+            let newData = tf.tensor2d([[Number(args.sepal_length), Number(args.sepal_width), Number(args.petal_length), Number(args.petal_width)]]);
+
+            // Reshape input for RNN
+            newData = newData.reshape([1, 1, 4]);    
+
+            rnn_model.predict(newData).array().then(array => {
+
+                array = array[0];
+                let max = array[0]
+                if (array[1] > max) {
+                    max = array[1];
+                }
+                if (array[2] > max) {
+                    max = array[2];
+                }
+
+                if (max == array[0]) {
+                    prediction = "setosa";
+                } else if (max == array[1]) {
+                    prediction = "virginica";
+                } else {
+                    prediction = "versicolor";
+                }
+            });
+
         }
+    }
+
+    //_____________________RNN train_____________________________________
+    RNN_train(args) {
+
+        this.reset_values();
+
+        // ___________________________IRIS data ____________________________
+        if (args.Data == "iris") {
+            const iris_data = this.load_iris();
+            let trainingData = iris_data[0];
+            let testingData = iris_data[1];
+            let outputData = iris_data[2];
+            let testingOutputData = iris_data[3];
+
+            // Reshape input data to mach the input required by RNN models
+            trainingData = trainingData.reshape([130, 1, 4]);
+            testingData = testingData.reshape([14, 1, 4]);
+
+            // Creating Model
+            rnn_model = tf.sequential();
+
+            rnn_model.add(tf.layers.simpleRNN(
+                {
+                    inputShape: [1, 4], // [number of time steps, number of features]
+                    activation: 'sigmoid',
+                    units: 5,
+                    return_sequences: true
+                }
+            ));
+
+            rnn_model.add(tf.layers.dense(
+                {
+                    inputShape: [130, 4],
+                    units: 3,
+                    activation: 'softmax'
+                }
+            ));
+
+            console.log(rnn_model.summary());
+            // compiling model
+            rnn_model.compile({
+                loss: "categoricalCrossentropy",
+                metrics: ["accuracy"],
+                optimizer: tf.train.adam(.06)
+            })
+
+            rnn_model.fit(trainingData, outputData, {
+                epochs: epochs, shuffle: false, callbacks: {
+                    onEpochEnd: (epoch, logs) => {
+                        //console.log("EPOCH END");
+                        console.log("Loss: ", logs.loss);
+                        loss = logs.loss;
+                        console.log("Training Accuracy: ", logs.acc);
+                        training_accuracy = logs.acc;
+
+                    }
+                }
+            }).then(
+                (history) => {
+                    const evaluation = rnn_model.evaluate(testingData, testingOutputData)
+                    // // Loss
+                    // console.log("Testing Loss: ");
+                    // console.log(evaluation[0].print());
+
+                    // Testing Accuracy
+                    console.log("Testing Accuracy: ");
+                    evaluation[1].array().then(array => {
+                        accuracy = array;
+                        console.log(this.accuracy);
+                    });
+
+                    console.log("DONE");
+                });
+        }
+
     }
 
     //_____________________CNN train_____________________________________
@@ -682,7 +786,7 @@ class Scratch3DeepScratch {
 
     //_____________________CNN predict_____________________________________
 
-    CNN_predict(args) {
+    predictMNIST(args) {
 
         // capture a video frame and add it to img element
         this.canvas.height = this.video.height;
