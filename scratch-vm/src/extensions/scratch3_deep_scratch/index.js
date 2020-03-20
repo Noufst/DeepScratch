@@ -47,8 +47,8 @@ const Message = {
 const AvailableLocales = ['en', 'ar'];
 
 let cnn_model = null;
+let dense_model = null;
 let epochs = EPOCHS_DEFAULT;
-let batch_size = BATCH_SIZE_DEFAULT;
 let accuracy = "";
 let training_accuracy = "";
 let loss = "";
@@ -58,9 +58,6 @@ class Scratch3DeepScratch {
 
     constructor(runtime) {
         this.runtime = runtime;
-        this.layers = LAYERS_DEFAULT;
-        this.dense_model = null;
-        this.model_type = "";
         this.video = document.createElement("video");
         this.video.width = 408;
         this.video.height = 306;
@@ -158,28 +155,17 @@ class Scratch3DeepScratch {
                     }
                 },
                 {
-                    opcode: 'setLayers',
-                    blockType: BlockType.COMMAND,
-                    text: 'set number of hidden layers [Number]',
-                    arguments: {
-                        Number: {
-                            type: ArgumentType.NUMBER,
-                            defaultValue: 2
-                        }
-                    }
-                },
-                {
                     opcode: 'dense_train',
                     blockType: BlockType.COMMAND,
-                    text: 'train [Data] with model [Model]',
+                    text: 'train Dense: data [Data] #layers [Layers]',
                     arguments: {
                         Data: {
                             type: ArgumentType.STRING,
                             menu: 'dataMenu'
                         },
-                        Model: {
+                        Layers: {
                             type: ArgumentType.STRING,
-                            menu: 'modelsMenu'
+                            defaultValue: LAYERS_DEFAULT
                         }
                     }
                 },
@@ -325,7 +311,7 @@ class Scratch3DeepScratch {
                 }
             ],
             menus: {
-                dataMenu: ['iris', 'ImgNet', 'MNIST'],
+                dataMenu: ['iris'],
                 modelsMenu: ['Dense', 'RNN', 'CNN'],
                 cnn_data_menu: ["MNIST"],
                 video_menu: this.getVideoMenu(),
@@ -355,18 +341,21 @@ class Scratch3DeepScratch {
         return prediction;
     }
 
-    setLayers(args) {
-        this.layers = args.Number;
-    }
-
     setEpochs(args) {
         epochs = args.Number;
     }
 
+    reset_values() {
+        accuracy = "";
+        training_accuracy = "";
+        loss = "";
+        prediction = "";
+    }
+
+    //_____________________Dense train_____________________________________
     dense_train(args) {
 
         this.reset_values();
-        this.model_type = args.Model;
 
         // ___________________________IRIS data ____________________________
         if (args.Data == "iris") {
@@ -390,14 +379,11 @@ class Scratch3DeepScratch {
                 item.species === 'setosa' ? 1 : 0,
                 item.species === 'virginica' ? 1 : 0,
                 item.species === 'versicolor' ? 1 : 0]), [14, 3])
+                
+            // Creating Model
+        dense_model = tf.sequential();
 
-        } // End iris data
-
-        // Creating Model
-        this.dense_model = tf.sequential();
-
-
-        this.dense_model.add(tf.layers.dense(
+        dense_model.add(tf.layers.dense(
             {
                 inputShape: 4,
                 activation: 'sigmoid',
@@ -405,8 +391,8 @@ class Scratch3DeepScratch {
             }
         ));
 
-        for (let i = 1; i <= this.layers; i++) {
-            this.model.add(tf.layers.dense(
+        for (let i = 1; i <= args.Layers; i++) {
+            dense_model.add(tf.layers.dense(
                 {
                     inputShape: 5,
                     activation: 'sigmoid',
@@ -415,7 +401,7 @@ class Scratch3DeepScratch {
             ));
         }
 
-        this.model.add(tf.layers.dense(
+        dense_model.add(tf.layers.dense(
             {
                 inputShape: 5,
                 units: 3,
@@ -424,6 +410,45 @@ class Scratch3DeepScratch {
         ));
 
 
+        console.log(dense_model.summary());
+        // compiling model
+        dense_model.compile({
+            loss: "categoricalCrossentropy",
+            metrics: ["accuracy"],
+            optimizer: tf.train.adam(.06)
+        })
+
+        dense_model.fit(trainingData, outputData, {
+            epochs: epochs, shuffle: false, callbacks: {
+                onEpochEnd: (epoch, logs) => {
+                    //console.log("EPOCH END");
+                    console.log("Loss: ", logs.loss);
+                    loss = logs.loss;
+                    console.log("Training Accuracy: ", logs.acc);
+                    training_accuracy = logs.acc;
+
+                }
+            }
+        }).then(
+            (history) => {
+                const evaluation = dense_model.evaluate(testingData, testingOutputData)
+                // // Loss
+                // console.log("Testing Loss: ");
+                // console.log(evaluation[0].print());
+
+                // Testing Accuracy
+                console.log("Testing Accuracy: ");
+                evaluation[1].array().then(array => {
+                    accuracy = array;
+                    console.log(this.accuracy);
+                });
+
+                console.log("DONE");
+            });
+
+        } // End iris data
+
+        
         // ___________________________RNN Model ____________________________
 
         // else if (this.model_type == "RNN") {
@@ -449,16 +474,46 @@ class Scratch3DeepScratch {
         //     ));
         // }
         // 
-        this.epochs = EPOCHS_DEFAULT;
-        this.layers = LAYERS_DEFAULT;
+        epochs = EPOCHS_DEFAULT;
+        layers = LAYERS_DEFAULT;
 
     }
 
-    reset_values(){
-        accuracy = "";
-        training_accuracy = "";
-        loss = "";
+    //____________________ Predict iris  _____________________________
+    predictIris(args) {
+
         prediction = "";
+
+        if (dense_model != null) {
+
+            let newData = tf.tensor2d([[Number(args.sepal_length), Number(args.sepal_width), Number(args.petal_length), Number(args.petal_width)]]);
+
+            // if (this.model_type == "RNN") {
+            //     // Reshape input for RNN
+            //     newData = newData.reshape([1, 1, 4]);
+            // }
+
+            dense_model.predict(newData).array().then(array => {
+
+                array = array[0];
+                let max = array[0]
+                if (array[1] > max) {
+                    max = array[1];
+                }
+                if (array[2] > max) {
+                    max = array[2];
+                }
+
+                if (max == array[0]) {
+                    prediction = "setosa";
+                } else if (max == array[1]) {
+                    prediction = "virginica";
+                } else {
+                    prediction = "versicolor";
+                }
+            });
+
+        }
     }
 
     //_____________________CNN train_____________________________________
@@ -467,38 +522,40 @@ class Scratch3DeepScratch {
         // Reset values
         this.reset_values();
 
-        // load MNIST data
-        let data;
-        async function load_data() {
-            console.log('Loading MNIST data...');
-            data = new MnistData();
-            await data.load();
-        }
+        if (args.Data == "MNIST") {
+            // load MNIST data
+            let data;
+            async function load_data() {
+                console.log('Loading MNIST data...');
+                data = new MnistData();
+                await data.load();
+            }
 
-        // train model
-        load_data().then(() => {
-            console.log('MNIST data is done loading');
-            train_model().then(() => {
-                console.log('CNN model is done training...');
+            // train model
+            load_data().then(() => {
+                console.log('MNIST data is done loading');
+                train_model().then(() => {
+                    console.log('CNN model is done training...');
 
-                // const testExamples = 100;
-                // const examples = data.getTestData(testExamples);
-                // // The tf.tidy callback runs synchronously.
-                // tf.tidy(() => {
-                //     if (cnn_model != null) {
-                //         console.log("predicting");
-                //         console.log(examples.xs);
-                //         const output = cnn_model.predict(examples.xs);
-                //         const axis = 1;
-                //         const labels = Array.from(examples.labels.argMax(axis).dataSync());
-                //         const predictions = Array.from(output.argMax(axis).dataSync());
+                    // const testExamples = 100;
+                    // const examples = data.getTestData(testExamples);
+                    // // The tf.tidy callback runs synchronously.
+                    // tf.tidy(() => {
+                    //     if (cnn_model != null) {
+                    //         console.log("predicting");
+                    //         console.log(examples.xs);
+                    //         const output = cnn_model.predict(examples.xs);
+                    //         const axis = 1;
+                    //         const labels = Array.from(examples.labels.argMax(axis).dataSync());
+                    //         const predictions = Array.from(output.argMax(axis).dataSync());
 
-                //         console.log(predictions);
-                //         //ui.showTestResults(examples, predictions, labels);
-                //     }
-                //});
+                    //         console.log(predictions);
+                    //         //ui.showTestResults(examples, predictions, labels);
+                    //     }
+                    //});
+                });
             });
-        });
+        }
 
         async function train_model() {
 
@@ -655,44 +712,6 @@ class Scratch3DeepScratch {
 
     }
 
-    //____________________ Iris Prediction _____________________________
-
-    predictIris(args) {
-
-        prediction = "";
-
-        if (this.model != null) {
-
-            let newData = tf.tensor2d([[Number(args.sepal_length), Number(args.sepal_width), Number(args.petal_length), Number(args.petal_width)]]);
-
-            if (this.model_type == "RNN") {
-                // Reshape input for RNN
-                newData = newData.reshape([1, 1, 4]);
-            }
-
-            const prediction = this.model.predict(newData).array().then(array => {
-
-                array = array[0];
-                let max = array[0]
-                if (array[1] > max) {
-                    max = array[1];
-                }
-                if (array[2] > max) {
-                    max = array[2];
-                }
-
-                if (max == array[0]) {
-                    prediction = "setosa";
-                } else if (max == array[1]) {
-                    prediction = "virginica";
-                } else {
-                    prediction = "versicolor";
-                }
-            });
-
-        }
-    } 
-
     // Pre-trained model
     detectObj(args) {
         cocoSsd.load().then(model => {
@@ -753,7 +772,7 @@ class Scratch3DeepScratch {
                 video: true,
                 audio: false,
             });
-    
+
             media.then((stream) => {
                 this.video.srcObject = stream;
             });
