@@ -23,27 +23,118 @@ const cocoSsd = require('@tensorflow-models/coco-ssd');
 
 const EPOCHS_DEFAULT = 10;
 const LAYERS_DEFAULT = 2;
+const BATCH_SIZE_DEFAULT = 320;
+
+const Message = {
+    video_toggle: {
+        'en': 'turn video [VIDEO_STATE]',
+        'ar': 'تشغيل الفديو [VIDEO_STATE]'
+    },
+    on: {
+        'en': 'on',
+        'ar': 'تشغيل'
+    },
+    off: {
+        'en': 'off',
+        'ar': 'ايقاف'
+    },
+    video_on_flipped: {
+        'en': 'on flipped',
+        'ar': 'مقلوبة'
+    }
+}
+
+const AvailableLocales = ['en', 'ar'];
 
 let cnn_model = null;
+let epochs = EPOCHS_DEFAULT;
+let batch_size = BATCH_SIZE_DEFAULT;
+let accuracy = "";
+let training_accuracy = "";
+let loss = "";
+let prediction = "";
 
 class Scratch3DeepScratch {
 
     constructor(runtime) {
         this.runtime = runtime;
-        this.epochs = EPOCHS_DEFAULT;
         this.layers = LAYERS_DEFAULT;
-        this.accuracy = "";
-        this.training_accuracy = "";
-        this.loss = "";
         this.dense_model = null;
         this.model_type = "";
-        this.prediction = "";
         this.video = document.createElement("video");
         this.video.width = 408;
         this.video.height = 306;
         this.video.autoplay = true;
         this.video.style.display = "none";
         this.canvas = document.createElement('canvas');
+
+        // Load the pre-trained model
+        this.interval = 1000;
+        this.coordinate = {
+            text: "1",
+            value: "no object detected"
+        }
+        this.objectClasses = [
+            {
+                text: "1",
+                value: "no object detected"
+            },
+            {
+                text: "2",
+                value: "nno object detected"
+            },
+            {
+                text: "3",
+                value: "no object detected"
+            }
+        ];
+        this.objectScores = [{
+            text: "1",
+            value: "no object detected"
+        },
+        {
+            text: "2",
+            value: "no object detected"
+        },
+        {
+            text: "3",
+            value: "no object detected"
+        }];
+        this.objectXPos = [{
+            text: "1",
+            value: 0
+        },
+        {
+            text: "2",
+            value: 0
+        },
+        {
+            text: "3",
+            value: 0
+        }];
+        this.objectYPos = [{
+            text: "1",
+            value: 0
+        },
+        {
+            text: "2",
+            value: 0
+        },
+        {
+            text: "3",
+            value: 0
+        }];
+        const sp = this.runtime.getTargetForStage().getCostumes();
+        const targets = this.runtime.executableTargets;
+        var i;
+        for (i = 0; i < targets.length; i++) {
+            console.log(targets[i]);
+            console.log(targets[i].sprite);
+            if (targets[i].isStage && targets[i].sprite) {
+                this.test = targets[i];
+            }
+        }
+        this.locale = this.setLocale();
 
     }
 
@@ -56,43 +147,13 @@ class Scratch3DeepScratch {
             name: 'Deep Scratch',
             blocks: [
                 {
-                    opcode: 'dense_train',
-                    blockType: BlockType.COMMAND,
-                    text: 'train [Data] with model [Model]',
-                    arguments: {
-                        Data: {
-                            type: ArgumentType.STRING,
-                            menu: 'dataMenu'
-                        },
-                        Model: {
-                            type: ArgumentType.STRING,
-                            menu: 'modelsMenu'
-                        }
-                    }
-                },
-                {
-                    opcode: 'CNN_predict',
-                    blockType: BlockType.COMMAND,
-                    text: 'predict MNIST with CNN',
-                },
-                {
-                    opcode: 'launch_camera',
-                    blockType: BlockType.COMMAND,
-                    text: 'lanuch camera',
-                },
-                {
-                    opcode: 'CNN_train',
-                    blockType: BlockType.COMMAND,
-                    text: 'train MNIST with CNN',
-                },
-                {
                     opcode: 'setEpochs',
                     blockType: BlockType.COMMAND,
                     text: 'set number of epochs [Number]',
                     arguments: {
                         Number: {
                             type: ArgumentType.NUMBER,
-                            defaultValue: 10
+                            defaultValue: EPOCHS_DEFAULT
                         }
                     }
                 },
@@ -104,6 +165,21 @@ class Scratch3DeepScratch {
                         Number: {
                             type: ArgumentType.NUMBER,
                             defaultValue: 2
+                        }
+                    }
+                },
+                {
+                    opcode: 'dense_train',
+                    blockType: BlockType.COMMAND,
+                    text: 'train [Data] with model [Model]',
+                    arguments: {
+                        Data: {
+                            type: ArgumentType.STRING,
+                            menu: 'dataMenu'
+                        },
+                        Model: {
+                            type: ArgumentType.STRING,
+                            menu: 'modelsMenu'
                         }
                     }
                 },
@@ -125,6 +201,26 @@ class Scratch3DeepScratch {
                             type: ArgumentType.NUMBER
                         }
                     }
+                },
+                {
+                    opcode: 'CNN_train',
+                    blockType: BlockType.COMMAND,
+                    text: 'train CNN: data [Data] batch size [BS]',
+                    arguments: {
+                        Data: {
+                            type: ArgumentType.STRING,
+                            menu: "cnn_data_menu"
+                        },
+                        BS: {
+                            type: ArgumentType.NUMBER,
+                            defaultValue: BATCH_SIZE_DEFAULT
+                        }
+                    }
+                },
+                {
+                    opcode: 'CNN_predict',
+                    blockType: BlockType.COMMAND,
+                    text: 'predict MNIST',
                 },
                 {
                     opcode: 'getAccuracy',
@@ -153,31 +249,110 @@ class Scratch3DeepScratch {
                     text: 'prediction',
                     arguments: {
                     }
+                },
+                // Pre-trained model
+                {
+                    opcode: 'videoToggle',
+                    text: Message.video_toggle[this.locale],
+                    blockType: BlockType.COMMAND,
+                    arguments: {
+                        VIDEO_STATE: {
+                            type: ArgumentType.STRING,
+                            menu: 'video_menu',
+                            defaultValue: 'off'
+                        }
+                    }
+                },
+                {
+                    opcode: 'detectObj',
+                    blockType: BlockType.COMMAND,
+                    text: 'detect objects'
+                    // arguments: {
+                    //     OBJNO: {
+                    //         type: ArgumentType.NUMBER,
+                    //         menu: 'obj_menu',
+                    //         defaultValue: 1
+                    //     }
+                    // }
+                },
+                {
+                    opcode: 'objectClass',
+                    blockType: BlockType.REPORTER,
+                    text: 'object Class [OBNO]',
+                    arguments: {
+                        OBNO: {
+                            type: ArgumentType.STRING,
+                            menu: 'classes_menu',
+                            defaultValue: "1"
+                        }
+                    }
+                },
+                {
+                    opcode: 'objectScore',
+                    blockType: BlockType.REPORTER,
+                    text: 'object score [OBSCSCORES]',
+                    arguments: {
+                        OBSCSCORES: {
+                            type: ArgumentType.STRING,
+                            menu: 'scores_menu',
+                            defaultValue: '1'
+                        }
+                    }
+                },
+                {
+                    opcode: 'objectxPos',
+                    blockType: BlockType.REPORTER,
+                    text: 'object x position [OBX]',
+                    arguments: {
+                        OBX: {
+                            type: ArgumentType.NUMBER,
+                            menu: 'posx_menu',
+                            defaultValue: '1'
+                        }
+                    }
+                },
+                {
+                    opcode: 'objectyPos',
+                    blockType: BlockType.REPORTER,
+                    text: 'object y position [OBY]',
+                    arguments: {
+                        OBY: {
+                            type: ArgumentType.NUMBER,
+                            menu: 'posy_menu',
+                            defaultValue: '1'
+                        }
+                    }
                 }
             ],
             menus: {
                 dataMenu: ['iris', 'ImgNet', 'MNIST'],
-                modelsMenu: ['Dense', 'RNN', 'CNN']
+                modelsMenu: ['Dense', 'RNN', 'CNN'],
+                cnn_data_menu: ["MNIST"],
+                video_menu: this.getVideoMenu(),
+                classes_menu: this.getCLassMenu(),
+                scores_menu: this.getScoreMenu(),
+                posx_menu: this.getXPosMenu(),
+                posy_menu: this.getYPosMenu()
             }
         };
     } // End getinfo
 
     getAccuracy() {
         //console.log(this.accuracy);
-        return this.accuracy;
+        return accuracy;
     }
 
     getTrainingAccuracy() {
-        return this.training_accuracy;
+        return training_accuracy;
     }
 
     getLoss() {
         //console.log(this.loss);
-        return this.loss;
+        return loss;
     }
 
     getPrediction() {
-        return this.prediction;
+        return prediction;
     }
 
     setLayers(args) {
@@ -185,15 +360,12 @@ class Scratch3DeepScratch {
     }
 
     setEpochs(args) {
-        this.epochs = args.Number;
+        epochs = args.Number;
     }
 
     dense_train(args) {
 
-        this.accuracy = "";
-        this.training_accuracy = "";
-        this.loss = "";
-        this.prediction = "";
+        this.reset_values();
         this.model_type = args.Model;
 
         // ___________________________IRIS data ____________________________
@@ -282,59 +454,57 @@ class Scratch3DeepScratch {
 
     }
 
+    reset_values(){
+        accuracy = "";
+        training_accuracy = "";
+        loss = "";
+        prediction = "";
+    }
+
     //_____________________CNN train_____________________________________
     CNN_train(args) {
 
-        this.accuracy = "";
-        this.training_accuracy = "";
-        this.loss = "";
-        this.prediction = "";
+        // Reset values
+        this.reset_values();
 
+        // load MNIST data
         let data;
-
-        // load data
         async function load_data() {
-            console.log('Loading data...');
+            console.log('Loading MNIST data...');
             data = new MnistData();
             await data.load();
         }
 
         // train model
         load_data().then(() => {
-            console.log('data is done loading');
+            console.log('MNIST data is done loading');
             train_model().then(() => {
-                console.log('model is done training...');
-                const testExamples = 100;
-                const examples = data.getTestData(testExamples);
+                console.log('CNN model is done training...');
 
-                // The tf.tidy callback runs synchronously.
-                tf.tidy(() => {
-                    if (cnn_model != null) {
-                        console.log("predicting");
-                        console.log(examples.xs);
-                        const output = cnn_model.predict(examples.xs);
-                        const axis = 1;
-                        const labels = Array.from(examples.labels.argMax(axis).dataSync());
-                        const predictions = Array.from(output.argMax(axis).dataSync());
+                // const testExamples = 100;
+                // const examples = data.getTestData(testExamples);
+                // // The tf.tidy callback runs synchronously.
+                // tf.tidy(() => {
+                //     if (cnn_model != null) {
+                //         console.log("predicting");
+                //         console.log(examples.xs);
+                //         const output = cnn_model.predict(examples.xs);
+                //         const axis = 1;
+                //         const labels = Array.from(examples.labels.argMax(axis).dataSync());
+                //         const predictions = Array.from(output.argMax(axis).dataSync());
 
-                        console.log(predictions);
-                        //ui.showTestResults(examples, predictions, labels);
-                    }
-                });
+                //         console.log(predictions);
+                //         //ui.showTestResults(examples, predictions, labels);
+                //     }
+                //});
             });
         });
 
         async function train_model() {
 
-            // const trainData = data.getTrainData();
-            // console.log("*********");
-            // console.log(trainData.labels);
-            // console.log(trainData.xs);
-            // console.log("*********");
-
-            console.log('creating model...');
-
             // ----------------- Create Model ------------------------
+            console.log('creating CNN model...');
+
             cnn_model = tf.sequential();
 
             cnn_model.add(tf.layers.conv2d({
@@ -347,12 +517,10 @@ class Scratch3DeepScratch {
             // MaxPooling layer. This acts as a sort of downsampling using max values
             cnn_model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
 
-
             // Our third layer is another convolution, this time with 32 filters.
             cnn_model.add(tf.layers.conv2d({ kernelSize: 3, filters: 32, activation: 'relu' }));
             // Max pooling again.
             cnn_model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
-
 
             // Add another conv2d layer.
             cnn_model.add(tf.layers.conv2d({ kernelSize: 3, filters: 32, activation: 'relu' }));
@@ -366,8 +534,7 @@ class Scratch3DeepScratch {
             // ----------------- End Create Model ------------------------
 
             // ----------------- Train Model ------------------------
-            console.log('model is training...');
-
+            console.log('training CNN model......');
 
             // An optimizer is an iterative method for minimizing an loss function.
             const optimizer = 'rmsprop';
@@ -381,14 +548,18 @@ class Scratch3DeepScratch {
             // Batch size is hyperparameter that defines the number of examples to batch.
             // small value will update weights using few examples and will not generalize well.
             // Larger batch sizes require more memory resources.
-            const batchSize = 320;
+            let batchSize = BATCH_SIZE_DEFAULT;
+            if (args.BS) {
+                batchSize = Number(args.BS);
+            }
 
             // 15% of the training data for validation, to monitor overfitting
             const validationSplit = 0.15;
 
             // Get number of training epochs from the UI.
             //const trainEpochs = ui.getTrainEpochs();
-            const trainEpochs = 10;
+            console.log(epochs)
+            //const trainEpochs = epochs//10;
 
             // keep a buffer of loss and accuracy values over time.
             let trainBatchCount = 0;
@@ -398,13 +569,13 @@ class Scratch3DeepScratch {
 
             const totalNumBatches =
                 Math.ceil(trainData.xs.shape[0] * (1 - validationSplit) / batchSize) *
-                trainEpochs;
+                epochs;
 
             let valAcc;
             await cnn_model.fit(trainData.xs, trainData.labels, {
                 batchSize,
                 validationSplit,
-                epochs: trainEpochs,
+                epochs: epochs,
                 callbacks: {
                     onBatchEnd: async (batch, logs) => {
                         trainBatchCount++;
@@ -420,6 +591,8 @@ class Scratch3DeepScratch {
                             //onIteration('onBatchEnd', batch, logs);
                         }
                         console.log("batch end");
+                        training_accuracy = logs.acc;
+                        loss = logs.loss;
                         await tf.nextFrame();
                     },
                     onEpochEnd: async (epoch, logs) => {
@@ -437,37 +610,24 @@ class Scratch3DeepScratch {
                 }
             });
 
-            console.log("fitting end");
-            console.log(testData.xs);
-            console.log(testData.labels);
+            //console.log(testData.xs);
+            //console.log(testData.labels);
             const testResult = cnn_model.evaluate(testData.xs, testData.labels);
-            const testAccPercent = testResult[1].dataSync()[0] * 100;
+            const testAcc = testResult[1].dataSync()[0];
+            //const testAccPercent = testAcc * 100;
             const finalValAccPercent = valAcc * 100;
-            console.log('model is done training...');
             console.log(finalValAccPercent);
+            accuracy = testAcc;
             // ----------------- End Train Model ------------------------
         }
 
     }
 
     //_____________________CNN predict_____________________________________
-    launch_camera(args) {
-
-        let media = navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false,
-        });
-
-        media.then((stream) => {
-            this.video.srcObject = stream;
-        });
-
-        this.runtime.ioDevices.video.enableVideo();
-    }
 
     CNN_predict(args) {
 
-
+        // capture a video frame and add it to img element
         this.canvas.height = this.video.height;
         this.canvas.width = this.video.width;
         var ctx = this.canvas.getContext('2d');
@@ -479,34 +639,27 @@ class Scratch3DeepScratch {
         // var w=window.open('about:blank','image from canvas');
         // w.document.write("<img src='"+d+"' alt='from canvas'/>");
 
-        // preprocess canvas
+        // convert canvas to tensor
         let tensor = tf.browser.fromPixels(this.canvas, 1).resizeBilinear([28, 28]);
-        // .resizeNearestNeighbor([28, 28])
-        // .mean(2)
-        // .expandDims(2)
-        // .expandDims()
-        // .toFloat()
-        // .div(255.0);
-        console.log("tensor shape");
-        console.log(tensor);
         const eTensor = tensor.expandDims(0);
-        console.log("eTensor shape");
-        console.log(eTensor);
+        //console.log("eTensor shape");
+        //console.log(eTensor);
+
         // // make predictions on the preprocessed image tensor
         let output = cnn_model.predict(eTensor);
-
         const axis = 1;
         //const labels = Array.from(examples.labels.argMax(axis).dataSync());
-        const predictions = Array.from(output.argMax(axis).dataSync());
-        console.log(predictions);
+        const MNIST_prediction = Array.from(output.argMax(axis).dataSync());
+        console.log(MNIST_prediction);
+        prediction = MNIST_prediction;
 
     }
 
-    //____________________ Prediction _____________________________
+    //____________________ Iris Prediction _____________________________
 
     predictIris(args) {
 
-        this.prediction = "";
+        prediction = "";
 
         if (this.model != null) {
 
@@ -529,17 +682,239 @@ class Scratch3DeepScratch {
                 }
 
                 if (max == array[0]) {
-                    this.prediction = "setosa";
+                    prediction = "setosa";
                 } else if (max == array[1]) {
-                    this.prediction = "virginica";
+                    prediction = "virginica";
                 } else {
-                    this.prediction = "versicolor";
+                    prediction = "versicolor";
                 }
             });
 
         }
-    } // END predict iris
+    } 
 
+    // Pre-trained model
+    detectObj(args) {
+        cocoSsd.load().then(model => {
+            // detect objects in the Video.
+            model.detect(this.video).then(predictions => {
+                console.log('Predictions: ', predictions);
+                var i;
+                for (i = 0; i < predictions.length; i++) {
+                    var index = i + 1;
+
+                    if (index < 4) {
+                        this.objectClasses[i].value = predictions[i].class;
+                        this.objectScores[i].value = predictions[i].score;
+                        let pos = this.convertPositions(predictions[i].bbox[0], predictions[i].bbox[1])
+                        this.objectXPos[i].value = pos[0];
+                        this.objectYPos[i].value = pos[1];
+                        console.log(this.objectYPos[i]);
+                        console.log(this.objectXPos[i]);
+                        console.log(predictions[i].class + " x:" + predictions[i].bbox[0] + "y:" + predictions[i].bbox[1]);
+                        console.log(pos[0]);
+                    }
+                    else {
+                        break;
+                    }
+                }
+
+            });
+        });
+    }
+
+    objectClass(args) {
+        let index = this.objectClasses.findIndex(x => x.text === args.OBNO);
+        return this.objectClasses[index].value;
+    }
+
+    objectScore(args) {
+        let index = this.objectScores.findIndex(x => x.text === args.OBSCSCORES);
+        return this.objectScores[index].value;
+    }
+
+    objectxPos(args) {
+        let index = this.objectXPos.findIndex(x => x.text === args.OBX);
+        return this.objectXPos[index].value;
+    }
+
+    objectyPos(args) {
+        let index = this.objectYPos.findIndex(x => x.text === args.OBY);
+        return this.objectYPos[index].value;
+    }
+
+    videoToggle(args) {
+
+        let state = args.VIDEO_STATE;
+        if (state === 'off') {
+            this.runtime.ioDevices.video.disableVideo();
+        } else {
+            let media = navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false,
+            });
+    
+            media.then((stream) => {
+                this.video.srcObject = stream;
+            });
+            this.runtime.ioDevices.video.enableVideo();
+            this.runtime.ioDevices.video.mirror = state === "on";
+        }
+    }
+
+    getVideoMenu() {
+        return [
+            {
+                text: Message.off[this.locale],
+                value: 'off'
+            },
+            {
+                text: Message.on[this.locale],
+                value: 'on'
+            },
+            {
+                text: Message.video_on_flipped[this.locale],
+                value: 'on-flipped'
+            }
+        ]
+    }
+
+    getCLassMenu() {
+        return [
+            {
+                text: '1',
+                value: '1'
+            },
+            {
+                text: '2',
+                value: '2'
+            },
+            {
+                text: '3',
+                value: '3'
+            }
+        ];
+    }
+
+    getScoreMenu() {
+        return [
+            {
+                text: '1',
+                value: '1'
+            },
+            {
+                text: '2',
+                value: '2'
+            },
+            {
+                text: '3',
+                value: '3'
+            }
+        ];
+    }
+
+    getXPosMenu() {
+        return [
+            {
+                text: '1',
+                value: '1'
+            },
+            {
+                text: '2',
+                value: '2'
+            },
+            {
+                text: '3',
+                value: '3'
+            }
+        ];
+    }
+
+    getYPosMenu() {
+        return [
+            {
+                text: '1',
+                value: '1'
+            },
+            {
+                text: '2',
+                value: '2'
+            },
+            {
+                text: '3',
+                value: '3'
+            }
+        ];
+    }
+
+    setLocale() {
+        let locale = formatMessage.setup().locale;
+        if (AvailableLocales.includes(locale)) {
+            return locale;
+        } else {
+            return 'en';
+        }
+    }
+
+    convertPositions(x, y) {
+        let w2 = this.video.width / 2
+        let h2 = this.video.height / 2
+        if (x == w2 && y == h2) {
+            return [0, 0]
+        } else if (x < w2 && y < h2) {
+            let newx = w2 - x
+            let newy = h2 - y
+            return [newx, newy]
+        } else if (x > w2 && y > h2) {
+            let newx = x - w2
+            let newy = y - h2
+            newx = w2 - x
+            newy = h2 - y
+            if (newx > 0) {
+                newx = newx * (-1)
+            }
+            if (newy > 0) {
+                newy = newy * (-1)
+            }
+            return [newx, newy]
+        } else if (x > w2 && y < h2) {
+            let newx = x - w2
+            let newy = h2 - y
+            newx = w2 - x
+            if (newx > 0) {
+                newx = newx * (-1)
+            }
+            return [newx, newy]
+        } else if (x < w2 && y > h2) {
+            let newx = w2 - x
+            let newy = y - h2
+            newy = h2 - y
+            if (newy > 0) {
+                newy = newy * (-1)
+            }
+            return [newx, newy]
+        } else if (x == w2 && y < h2) {
+            let newy = h2 - y
+            return [0, newy]
+        } else if (x == w2 && y > h2) {
+            let newy = y - h2
+            newy = h2 - y
+            if (newy > 0) {
+                newy = newy * (-1)
+            }
+            return [0, newy]
+        } else if (x > w2 && y == h2) {
+            let newx = x - w2
+            newx = w2 - x
+            if (newx > 0) {
+                newx = newx * (-1)
+            }
+            return [newx, 0]
+        } else if (x < w2 && y == h2) {
+            let newx = w2 - x
+            return [newx, 0]
+        }
+    }
 
 } // END Class
 
