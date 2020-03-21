@@ -58,6 +58,7 @@ let prediction = "";
 class Scratch3DeepScratch {
 
     constructor(runtime) {
+
         this.runtime = runtime;
         this.video = document.createElement("video");
         this.video.width = 408;
@@ -626,9 +627,10 @@ class Scratch3DeepScratch {
         // Reset values
         this.reset_values();
 
+        let data;
+
         if (args.Data == "MNIST") {
             // load MNIST data
-            let data;
             async function load_data() {
                 console.log('Loading MNIST data...');
                 data = new MnistData();
@@ -785,7 +787,6 @@ class Scratch3DeepScratch {
     }
 
     //_____________________CNN predict_____________________________________
-
     predictMNIST(args) {
 
         // capture a video frame and add it to img element
@@ -801,22 +802,31 @@ class Scratch3DeepScratch {
         // w.document.write("<img src='"+d+"' alt='from canvas'/>");
 
         // convert canvas to tensor
-        let tensor = tf.browser.fromPixels(this.canvas, 1).resizeBilinear([28, 28]);
-        const eTensor = tensor.expandDims(0);
-        //console.log("eTensor shape");
-        //console.log(eTensor);
+        //let tensor = tf.browser.fromPixels(this.canvas, 1).resizeBilinear([28, 28]);
+        //const eTensor = tensor.expandDims(0);
+
+        let tfImage = tf.browser.fromPixels(this.canvas, 1)
+        //Resize to 28X28
+        var tfResizedImage = tf.image.resizeBilinear(tfImage, [28,28]);
+        //Since white is 255 black is 0 so need to revert the values 
+        //so that white is 0 and black is 255 
+        tfResizedImage = tf.cast(tfResizedImage, 'float32');
+        tfResizedImage = tf.abs(tfResizedImage.sub(tf.scalar(255))).div(tf.scalar(255))//.flatten();
+        // Add the fourth dimention
+        tfResizedImage = tfResizedImage.expandDims(0);
 
         // // make predictions on the preprocessed image tensor
-        let output = cnn_model.predict(eTensor);
+        let output = cnn_model.predict(tfResizedImage);
         const axis = 1;
-        //const labels = Array.from(examples.labels.argMax(axis).dataSync());
-        const MNIST_prediction = Array.from(output.argMax(axis).dataSync());
+        const MNIST_prediction = Array.from(output.dataSync());
+        const MNIST_prediction_max = Array.from(output.argMax(axis).dataSync());
         console.log(MNIST_prediction);
-        prediction = MNIST_prediction;
+        console.log(MNIST_prediction_max);
+        prediction = MNIST_prediction_max;
 
     }
 
-    // Pre-trained model
+    //_____________________Pre-trained model_____________________________________
     detectObj(args) {
         cocoSsd.load().then(model => {
             // detect objects in the Video.
