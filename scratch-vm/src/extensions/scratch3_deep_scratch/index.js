@@ -80,7 +80,7 @@ class Scratch3DeepScratch {
             },
             {
                 text: "2",
-                value: "nno object detected"
+                value: "no object detected"
             },
             {
                 text: "3",
@@ -221,7 +221,7 @@ class Scratch3DeepScratch {
                 {
                     opcode: 'predictMNIST',
                     blockType: BlockType.COMMAND,
-                    text: 'predict MNIST',
+                    text: 'predict hand-written digit from MNIST',
                 },
                 '---',
                 {
@@ -281,7 +281,7 @@ class Scratch3DeepScratch {
                 {
                     opcode: 'objectClass',
                     blockType: BlockType.REPORTER,
-                    text: 'object Class [OBNO]',
+                    text: 'object name [OBNO]',
                     arguments: {
                         OBNO: {
                             type: ArgumentType.STRING,
@@ -293,7 +293,7 @@ class Scratch3DeepScratch {
                 {
                     opcode: 'objectScore',
                     blockType: BlockType.REPORTER,
-                    text: 'object score [OBSCSCORES]',
+                    text: 'object correctness % [OBSCSCORES]',
                     arguments: {
                         OBSCSCORES: {
                             type: ArgumentType.STRING,
@@ -754,8 +754,6 @@ class Scratch3DeepScratch {
                             //onIteration('onBatchEnd', batch, logs);
                         }
                         console.log("batch end");
-                        training_accuracy = logs.acc;
-                        loss = logs.loss;
                         await tf.nextFrame();
                     },
                     onEpochEnd: async (epoch, logs) => {
@@ -768,6 +766,8 @@ class Scratch3DeepScratch {
                         //   onIteration('onEpochEnd', epoch, logs);
                         // }
                         console.log("epoch end");
+                        training_accuracy = logs.acc;
+                        loss = logs.loss;
                         await tf.nextFrame();
                     }
                 }
@@ -794,9 +794,15 @@ class Scratch3DeepScratch {
         this.canvas.width = this.video.width;
         var ctx = this.canvas.getContext('2d');
         ctx.drawImage(this.video, 0, 0, this.canvas.height, this.canvas.width);
-        var img = new Image();
-        img.src = this.canvas.toDataURL();
 
+        // save image in local drive (for testing)
+        // var img = new Image();
+        // img.src = this.canvas.toDataURL("image/png");
+        // var link = document.createElement('a');
+        // link.download = "test.png";
+        // link.href = this.canvas.toDataURL("image/png").replace("image/png", "image/octet-stream");;
+        // link.click();
+        // return
         // var d=this.canvas.toDataURL("image/png");
         // var w=window.open('about:blank','image from canvas');
         // w.document.write("<img src='"+d+"' alt='from canvas'/>");
@@ -828,6 +834,56 @@ class Scratch3DeepScratch {
 
     //_____________________Pre-trained model_____________________________________
     detectObj(args) {
+        this.objectClasses = [
+            {
+                text: "1",
+                value: "no object detected"
+            },
+            {
+                text: "2",
+                value: "no object detected"
+            },
+            {
+                text: "3",
+                value: "no object detected"
+            }
+        ];
+        this.objectScores = [{
+            text: "1",
+            value: "no object detected"
+        },
+        {
+            text: "2",
+            value: "no object detected"
+        },
+        {
+            text: "3",
+            value: "no object detected"
+        }];
+        this.objectXPos = [{
+            text: "1",
+            value: 0
+        },
+        {
+            text: "2",
+            value: 0
+        },
+        {
+            text: "3",
+            value: 0
+        }];
+        this.objectYPos = [{
+            text: "1",
+            value: 0
+        },
+        {
+            text: "2",
+            value: 0
+        },
+        {
+            text: "3",
+            value: 0
+        }];
         cocoSsd.load().then(model => {
             // detect objects in the Video.
             model.detect(this.video).then(predictions => {
@@ -837,14 +893,16 @@ class Scratch3DeepScratch {
                     var index = i + 1;
 
                     if (index < 4) {
-                        this.objectClasses[i].value = predictions[i].class;
-                        this.objectScores[i].value = predictions[i].score;
-                        let pos = this.convertPositions(predictions[i].bbox[0], predictions[i].bbox[1])
-                        this.objectXPos[i].value = pos[0];
-                        this.objectYPos[i].value = pos[1];
+                        this.objectClasses[i].value=predictions[i].class;
+                        let precnt=predictions[i].score;
+                        precnt=precnt*100;
+                        this.objectScores[i].value=precnt.toFixed(2);;
+                        let pos=this.convertPositions(predictions[i].bbox[0],predictions[i].bbox[1])
+                        this.objectXPos[i].value=pos[0];
+                        this.objectYPos[i].value=pos[1];
                         console.log(this.objectYPos[i]);
                         console.log(this.objectXPos[i]);
-                        console.log(predictions[i].class + " x:" + predictions[i].bbox[0] + "y:" + predictions[i].bbox[1]);
+                        console.log(predictions[i].class+" x:"+predictions[i].bbox[0]+"y:"+predictions[i].bbox[1]);
                         console.log(pos[0]);
                     }
                     else {
